@@ -8,7 +8,9 @@ app.use(express.json());
 const { v4: uuidv4 } = require('uuid');
 const xssClean = require('xss-clean');
 app.use(xssClean());
-const port = process.env.PORT|| 3000;
+const port = process.env.PORT;
+require('dotenv').config();
+const {checkApiKey}=require('./api.js')
 
 mongoose.connect(process.env.DB_HOST)
   .then(() => console.log('Connected to MongoDB'))
@@ -56,8 +58,12 @@ const theaterSchema = new mongoose.Schema({
 });
 const Theater = mongoose.model('Theater', theaterSchema);
 
+app.get('/',(req,res)=>{
+  return res.send('Welcome to ShoreTic API')
+})
+
 // Endpoint to retrieve a theater by its ID
-app.get("/theater/:id", async (req, res) => {
+app.get("/theater/:id",checkApiKey, async (req, res) => {
     const { id } = req.params;
   
     try {
@@ -71,9 +77,7 @@ app.get("/theater/:id", async (req, res) => {
       res.status(500).json({ message: "Error fetching the theater." });
     }
   });
-  
-// Endpoint to retrieve all theaters
-app.get("/theater", async (req, res) => {
+app.get("/theater",checkApiKey, async (req, res) => {
   try {
     const theaters = await Theater.find({},{amenities:0,_id:0,movies:0,seating_layout:0,__v:0});
     res.json(theaters);
@@ -83,7 +87,7 @@ app.get("/theater", async (req, res) => {
 });
 
 // Endpoint to search theaters by city and title of the movie
-app.get("/search", async (req, res) => {
+app.get("/search",checkApiKey, async (req, res) => {
   const { city, title, language } = req.query;
   if (!city) {
     return res.status(400).json({ message: "Please provide a city to search." });
@@ -137,7 +141,7 @@ app.get("/search", async (req, res) => {
 });
 
 // Endpoint to add a new theater
-app.post("/admin/theater", async (req, res) => {
+app.post("/admin/theater",checkApiKey ,async (req, res) => {
   const { id, name, location, amenities } = req.body;
   if (!id || !name || !location || !location.city || !location.state || !location.pincode) {
     return res.status(400).json({ message: "Missing required fields for theater details." });
@@ -191,7 +195,7 @@ function generateDatesBetween(startDate, endDate) {
   }
   
   // Endpoint to add movie details to a specific theater by ID
-  app.post("/admin/theater/:id/movie", async (req, res) => {
+  app.post("/admin/theater/:id/movie", checkApiKey,async (req, res) => {
     const { id } = req.params;
     const { 
       title, 
@@ -317,7 +321,7 @@ function generateDatesBetween(startDate, endDate) {
   });
 
 //general theater seating layout
-app.post("/admin/theater/:id/seating", async (req, res) => {
+app.post("/admin/theater/:id/seating",checkApiKey, async (req, res) => {
   const { id } = req.params;
   const { seating_layout } = req.body;
   // Validate seating_layout structure
@@ -362,7 +366,7 @@ const bookingLimiter = rateLimit({
   message: 'Too many booking attempts from this IP, please try again later.'
 });
 
-app.put("/admin/theater/:id/movie/:movieId/showtime/:showtime",bookingLimiter,async (req, res) => {
+app.put("/admin/theater/:id/movie/:movieId/showtime/:showtime",checkApiKey,bookingLimiter,async (req, res) => {
   const { id, movieId, showtime } = req.params;
   const { row, seatNumber, available } = req.body;
   if (typeof available !== 'boolean') {
@@ -423,7 +427,7 @@ app.put("/admin/theater/:id/movie/:movieId/showtime/:showtime",bookingLimiter,as
 });
 
 // Endpoint to get the seating layout for a specific movie showtime
-app.get("/theater/:id/movie/:movieId/showtime/:showtime", async (req, res) => {
+app.get("/theater/:id/movie/:movieId/showtime/:showtime",checkApiKey, async (req, res) => {
   const { id, movieId, showtime } = req.params;
   try {
     // Find the theater by ID
@@ -456,7 +460,7 @@ app.get("/theater/:id/movie/:movieId/showtime/:showtime", async (req, res) => {
 });
 
 //Endpoint To Delete Movie From Specific Theater from by Using ID
-app.delete("/admin/theater/:id/movie/:movieId", async (req, res) => {
+app.delete("/admin/theater/:id/movie/:movieId",checkApiKey, async (req, res) => {
   const { id, movieId } = req.params;
   try {
     const theater = await Theater.findOne({ id });
@@ -484,7 +488,7 @@ app.delete("/admin/theater/:id/movie/:movieId", async (req, res) => {
 
 
 // Endpoint to update theater details
-app.put("/admin/theater/:id", async (req, res) => {
+app.put("/admin/theater/:id",checkApiKey, async (req, res) => {
   const { id } = req.params;
   const { name, location, amenities } = req.body;
   // Validate required fields
@@ -512,7 +516,7 @@ app.put("/admin/theater/:id", async (req, res) => {
 });
 
 // Endpoint to delete a theater
-app.delete("/admin/theater/:id", async (req, res) => {
+app.delete("/admin/theater/:id",checkApiKey, async (req, res) => {
   const { id } = req.params;
 
   try {
