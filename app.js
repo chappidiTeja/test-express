@@ -15,55 +15,78 @@ const {checkApiKey}=require('./api.js')
 mongoose.connect(process.env.DB_HOST)
   .then(() => console.log('Connected to MongoDB'))
   .catch((err) => console.error('Could not connect to MongoDB', err));
+
 const theaterSchema = new mongoose.Schema({
-  id: String,
-  name: String,
-  location: {
-    address_line: String,
-    city: String,
-    state: String,
-    pincode: String
-  },
-  amenities: {
-    facilities: [String]
-  },
-  movies: [
-    {
-      id: { type: String, required: true },
-      title: String,
-      genre: String,
-      duration: Number,
-      showtimes: [],
-      rating: String,
-      description: String,
-      poster: String,
-      start_date: Date,
-      end_date: Date,
-      language: { type: String, required: true }
-    }
-  ],
-  seating_layout: [
-    {
-      row: String,
-      seats: [
-        {
-          number: String,
-          category: { type: String, enum: ['balcony', 'firstclass', 'secondclass'] },
-          price: Number,
-          available: { type: Boolean, default: true }
-        }
-      ]
-    }
-  ]
-});
+    id: String,
+    name: String,
+    location: {
+      address_line: String,
+      city: String,
+      state: String,
+      pincode: String
+    },
+    amenities: {
+      facilities: [String]
+    },
+    movies: [
+      {
+        id: { type: String, required: true },
+        title: String,
+        genre: String,
+        duration: Number,
+        showtimes: [
+          {
+            date: String, 
+            times: [
+              {
+                time: String, 
+                seating_layout: [
+                  {
+                    row: String,
+                    seats: [
+                      {
+                        number: String,
+                        category: { type: String, enum: ['balcony', 'firstclass', 'secondclass'] },
+                        price: Number,
+                        available: { type: Boolean, default: true }
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ],
+        rating: String,
+        description: String,
+        poster: String,
+        start_date: Date,
+        end_date: Date,
+        language: { type: String, required: true }
+      }
+    ],
+    seating_layout: [
+      {
+        row: String,
+        seats: [
+          {
+            number: String,
+            category: { type: String, enum: ['balcony', 'firstclass', 'secondclass'] },
+            price: Number,
+            available: { type: Boolean, default: true }
+          }
+        ]
+      }
+    ]
+  });
 const Theater = mongoose.model('Theater', theaterSchema);
 
 app.get('/',(req,res)=>{
   return res.send('Welcome to ShoreTic API')
 })
 
-// Endpoint to retrieve a theater by its ID
-app.get("/theater/:id",checkApiKey, async (req, res) => {
+//theater by ID
+app.get("/theater/:id", async (req, res) => {
     const { id } = req.params;
   
     try {
@@ -77,7 +100,9 @@ app.get("/theater/:id",checkApiKey, async (req, res) => {
       res.status(500).json({ message: "Error fetching the theater." });
     }
   });
-app.get("/theater",checkApiKey, async (req, res) => {
+
+//To get the theater
+app.get("/theater", async (req, res) => {
   try {
     const theaters = await Theater.find({},{amenities:0,_id:0,movies:0,seating_layout:0,__v:0});
     res.json(theaters);
@@ -87,61 +112,106 @@ app.get("/theater",checkApiKey, async (req, res) => {
 });
 
 // Endpoint to search theaters by city and title of the movie
-app.get("/search",checkApiKey, async (req, res) => {
-  const { city, title, language } = req.query;
+app.get("/search", async (req, res) => {
+  const { city, title, language, date } = req.query;
+  
+  // If no city is provided, return a 400 error
   if (!city) {
     return res.status(400).json({ message: "Please provide a city to search." });
   }
+  
   try {
-    const theaters = await Theater.find({ 'location.city': city },{amenities:0,_id:0,'movies.showtimes.seating_layout':0,seating_layout:0,_id:0,__v:0,'movies._id':0});
+    // Search theaters based on city location, ignoring unnecessary fields
+    const theaters = await Theater.find(
+      { 'location.city': city },
+      {
+        amenities: 0,
+        _id: 0,
+        seating_layout: 0,
+        __v: 0,
+        'movies._id': 0,
+        'movies.showtimes.times.seating_layout': 0,
+        'movies.showtimes.times._id': 0,
+        'movies.showtimes._id': 0
+      }
+    );
+    
+    // If no theaters are found in the city
     if (theaters.length === 0) {
       return res.status(404).json({ message: "No theater found for the given city." });
     }
-    // Filter theaters based on movie title and/or language if provided
-    if (title || language) {
+    
+    // If filters are provided, process them
+    if (title || language || date) {
       const filteredTheaters = theaters.map(theater => {
         let filteredMovies = theater.movies;
 
-        // Filter by title if provided
+        // Filter by movie title if provided
         if (title) {
           filteredMovies = filteredMovies.filter(movie =>
             movie.title.toLowerCase().includes(title.toLowerCase())
           );
         }
+        
         // Filter by language if provided
         if (language) {
           filteredMovies = filteredMovies.filter(movie =>
             movie.language.toLowerCase() === language.toLowerCase()
           );
         }
+        
+        // Filter by date if provided
+        if (date) {
+          filteredMovies = filteredMovies.filter(movie => {
+            // Check if any of the movie's showtimes match the requested date
+            return movie.showtimes.some(showtime => showtime.date === date);
+          });
+          
+          // Filter the showtimes to only include those on the specified date
+          filteredMovies = filteredMovies.map(movie => {
+            const filteredShowtimes = movie.showtimes.filter(showtime => showtime.date === date);
+            return { ...movie.toObject(), showtimes: filteredShowtimes };
+          });
+        }
+        
         return { ...theater.toObject(), movies: filteredMovies };
       });
+      
       // Remove theaters with no matching movies
       const theatersWithMovies = filteredTheaters.filter(theater => theater.movies.length > 0);
+      
       if (theatersWithMovies.length === 0) {
         let message = "No movies found";
-        if (title && language) {
-          message += ` with title containing "${title}" in ${language} language`;
-        } else if (title) {
-          message += ` with title containing "${title}"`;
-        } else {
-          message += ` in ${language} language`;
+        const filters = [];
+        
+        if (title) filters.push(`title containing "${title}"`);
+        if (language) filters.push(`in ${language} language`);
+        if (date) filters.push(`on date ${date}`);
+        
+        if (filters.length > 0) {
+          message += ` with ${filters.join(' and ')}`;
         }
+        
         message += " in the specified city.";
         return res.status(404).json({ message });
       }
+      
+      // Return the filtered theaters with movies
       res.json(theatersWithMovies);
     } else {
-      // If no title or language is provided, return all theaters in the city
+      // If no filters are provided, return all theaters in the city
       res.json(theaters);
     }
   } catch (err) {
+    console.error("Error searching theaters:", err);
     res.status(500).json({ message: "Error searching theaters." });
   }
 });
 
+
+
 // Endpoint to add a new theater
-app.post("/admin/theater",checkApiKey ,async (req, res) => {
+app.post("/admin/theater" ,async (req, res) => {
   const { id, name, location, amenities } = req.body;
   if (!id || !name || !location || !location.city || !location.state || !location.pincode) {
     return res.status(400).json({ message: "Missing required fields for theater details." });
@@ -194,134 +264,141 @@ function generateDatesBetween(startDate, endDate) {
     return new Date(year, month - 1, day);
   }
   
-  // Endpoint to add movie details to a specific theater by ID
-  app.post("/admin/theater/:id/movie", checkApiKey,async (req, res) => {
-    const { id } = req.params;
-    const { 
-      title, 
-      genre, 
-      duration, 
-      showtimes, 
-      rating, 
-      description, 
-      poster, 
-      start_date, 
-      end_date, 
-      language 
-    } = req.body;
-  
-    // Validation checks
-    if (!title || !genre || !duration || !showtimes || !rating || 
-        !description || !poster || !start_date || !end_date || !language) {
-      return res.status(400).json({ 
-        message: "Missing required fields for movie details." 
+// Endpoint to add movie details to a specific theater by ID
+app.post("/admin/theater/:id/movie", async (req, res) => {
+  const { id } = req.params;
+  const { 
+    title, 
+    genre, 
+    duration, 
+    showtimes, // Array of time strings like ["10:00 AM", "2:00 PM"]
+    rating, 
+    description, 
+    poster, 
+    start_date, 
+    end_date, 
+    language 
+  } = req.body;
+
+  // Validation checks
+  if (!title || !genre || !duration || !showtimes || !rating || 
+      !description || !poster || !start_date || !end_date || !language) {
+    return res.status(400).json({ 
+      message: "Missing required fields for movie details." 
+    });
+  }
+
+  // Validate showtimes array
+  if (!Array.isArray(showtimes) || showtimes.some(time => typeof time !== "string")) {
+    return res.status(400).json({ 
+      message: "Showtimes must be an array of strings." 
+    });
+  }
+
+  try {
+    const theater = await Theater.findOne({ id: id });
+
+    if (!theater) {
+      return res.status(404).json({ 
+        message: "Theater not found with the given ID." 
       });
     }
-  
-    // Validate showtimes array
-    if (!Array.isArray(showtimes) || showtimes.some(time => typeof time !== "string")) {
-      return res.status(400).json({ 
-        message: "Showtimes must be an array of strings." 
+
+    // Check if theater has seating layout
+    if (!theater.seating_layout || theater.seating_layout.length === 0) {
+      return res.status(400).json({
+        message: "Theater does not have a seating layout configured."
       });
     }
-  
-    try {
-      const theater = await Theater.findOne({ id: id });
-  
-      if (!theater) {
-        return res.status(404).json({ 
-          message: "Theater not found with the given ID." 
-        });
-      }
-  
-      // Check if theater has seating layout
-      if (!theater.seating_layout || theater.seating_layout.length === 0) {
-        return res.status(400).json({
-          message: "Theater does not have a seating layout configured."
-        });
-      }
-  
-      // Parse dates
-      const parsedStartDate = parseDate(start_date);
-      const parsedEndDate = parseDate(end_date);
-  
-      // Validate dates
-      if (isNaN(parsedStartDate.getTime()) || isNaN(parsedEndDate.getTime())) {
-        return res.status(400).json({ 
-          message: "Invalid date format. Please use dd-mm-yyyy format." 
-        });
-      }
-  
-      if (parsedStartDate > parsedEndDate) {
-        return res.status(400).json({ 
-          message: "Start date cannot be after end date." 
-        });
-      }
-  
-      // Generate all dates between start and end date
-      const allDates = generateDatesBetween(parsedStartDate, parsedEndDate);
-  
-      // Function to generate seating layout for a showtime
-      const generateSeatingLayoutForShowtime = () => {
-        return theater.seating_layout.map(row => ({
-          row: row.row,
-          seats: row.seats.map(seat => ({
-            number: seat.number,
-            category: seat.category,
-            price: seat.price,
-            available: seat.available
-          }))
-        }));
-      };
-  
-      // Generate movie ID
-      const movieId = uuidv4();
-  
-      // Generate all showtimes with dates
-      const generatedShowtimes = allDates.flatMap(date => {
-        return showtimes.map(time => ({
-          time: `${formatDate(date)} ${time}`,
+
+    // Parse dates
+    const parsedStartDate = parseDate(start_date);
+    const parsedEndDate = parseDate(end_date);
+
+    // Validate dates
+    if (isNaN(parsedStartDate.getTime()) || isNaN(parsedEndDate.getTime())) {
+      return res.status(400).json({ 
+        message: "Invalid date format. Please use dd-mm-yyyy format." 
+      });
+    }
+
+    if (parsedStartDate > parsedEndDate) {
+      return res.status(400).json({ 
+        message: "Start date cannot be after end date." 
+      });
+    }
+
+    // Generate all dates between start and end date
+    const allDates = generateDatesBetween(parsedStartDate, parsedEndDate);
+
+    // Function to generate seating layout for a showtime
+    const generateSeatingLayoutForShowtime = () => {
+      return theater.seating_layout.map(row => ({
+        row: row.row,
+        seats: row.seats.map(seat => ({
+          number: seat.number,
+          category: seat.category,
+          price: seat.price,
+          available: seat.available
+        }))
+      }));
+    };
+
+    // Generate movie ID
+    const movieId = uuidv4();
+
+    // Generate showtimes by date
+    const generatedShowtimes = allDates.map(date => {
+      const formattedDate = formatDate(date);
+      return {
+        date: formattedDate,
+        times: showtimes.map(time => ({
+          time: time,
           seating_layout: generateSeatingLayoutForShowtime()
-        }));
-      });
-  
-      // Create movie object with generated showtimes
-      const movieWithSeating = {
-        id: movieId,
-        title,
-        genre,
-        duration,
-        showtimes: generatedShowtimes,
-        rating,
-        description,
-        poster,
-        start_date: parsedStartDate,
-        end_date: parsedEndDate,
-        language
+        }))
       };
-  
-      // Add movie to theater
-      theater.movies.push(movieWithSeating);
-      await theater.save();
-  
-      res.status(201).json({
-        message: "Movie added successfully",
-        movieId: movieId,
-        totalShowtimes: generatedShowtimes.length,
-        movie: movieWithSeating
-      });
-  
-    } catch (err) {
-      console.error("Error adding movie details:", err);
-      res.status(500).json({ 
-        message: "Error adding movie details to the theater.",
-        error: err.message 
-      });
-    }
-  });
+    });
+
+    // Create movie object with generated showtimes
+    const movieWithSeating = {
+      id: movieId,
+      title,
+      genre,
+      duration,
+      showtimes: generatedShowtimes,
+      rating,
+      description,
+      poster,
+      start_date: parsedStartDate,
+      end_date: parsedEndDate,
+      language
+    };
+
+    // Add movie to theater
+    theater.movies.push(movieWithSeating);
+    await theater.save();
+
+    // Calculate total number of showtimes
+    const totalShowtimes = generatedShowtimes.reduce((total, dateObj) => total + dateObj.times.length, 0);
+
+    res.status(201).json({
+      message: "Movie added successfully",
+      movieId: movieId,
+      totalShowtimes: totalShowtimes,
+      movie: movieWithSeating
+    });
+
+  } catch (err) {
+    console.error("Error adding movie details:", err);
+    res.status(500).json({ 
+      message: "Error adding movie details to the theater.",
+      error: err.message 
+    });
+  }
+});
 
 //general theater seating layout
-app.post("/admin/theater/:id/seating",checkApiKey, async (req, res) => {
+app.post("/admin/theater/:id/seating", async (req, res) => {
   const { id } = req.params;
   const { seating_layout } = req.body;
   // Validate seating_layout structure
@@ -427,31 +504,46 @@ app.put("/admin/theater/:id/movie/:movieId/showtime/:showtime",checkApiKey,booki
 });
 
 // Endpoint to get the seating layout for a specific movie showtime
-app.get("/theater/:id/movie/:movieId/showtime/:showtime",checkApiKey, async (req, res) => {
-  const { id, movieId, showtime } = req.params;
+app.get("/theater/:id/movie/:movieId/showtime", async (req, res) => {
+  const { id, movieId } = req.params;
+  const { date, time } = req.query;
+  
+  if (!date || !time) {
+    return res.status(400).json({ message: "Both date (dd-mm-yyyy) and time are required." });
+  }
+  
   try {
     // Find the theater by ID
-    const theater = await Theater.findOne({id}, {});
+    const theater = await Theater.findOne({id},{_id:0,'seating_layout.seats':0});
 
     if (!theater) {
       return res.status(404).json({ message: "Theater not found with the given ID." });
     }
+    
     // Find the movie by its ID
     const movie = theater.movies.find(movie => movie.id === movieId);
     if (!movie) {
       return res.status(404).json({ message: "Movie not found with the given ID." });
     }
-    // Find the specific showtime
-    const showtimeDetails = movie.showtimes.find(s => s.time === showtime);
-
-    if (!showtimeDetails) {
-      return res.status(404).json({ message: "Showtime not found for the movie." });
+    
+    // Find the date object
+    const dateObject = movie.showtimes.find(d => d.date === date);
+    if (!dateObject) {
+      return res.status(404).json({ message: "No showtimes found for the specified date." });
     }
+    
+    // Find the specific time slot
+    const timeObject = dateObject.times.find(t => t.time === time);
+    if (!timeObject) {
+      return res.status(404).json({ message: "Showtime not found for the specified time." });
+    }
+    
     // Return the seating layout for the specific showtime
     res.json({
       movieId: movieId,
-      showtime: showtimeDetails.time,
-      seating_layout: showtimeDetails.seating_layout
+      date: date,
+      time: time,
+      seating_layout: timeObject.seating_layout
     });
   } catch (err) {
     console.error("Error fetching seating layout:", err);
@@ -459,8 +551,10 @@ app.get("/theater/:id/movie/:movieId/showtime/:showtime",checkApiKey, async (req
   }
 });
 
+
+
 //Endpoint To Delete Movie From Specific Theater from by Using ID
-app.delete("/admin/theater/:id/movie/:movieId",checkApiKey, async (req, res) => {
+app.delete("/admin/theater/:id/movie/:movieId", async (req, res) => {
   const { id, movieId } = req.params;
   try {
     const theater = await Theater.findOne({ id });
@@ -488,7 +582,7 @@ app.delete("/admin/theater/:id/movie/:movieId",checkApiKey, async (req, res) => 
 
 
 // Endpoint to update theater details
-app.put("/admin/theater/:id",checkApiKey, async (req, res) => {
+app.put("/admin/theater/:id", async (req, res) => {
   const { id } = req.params;
   const { name, location, amenities } = req.body;
   // Validate required fields
@@ -516,7 +610,7 @@ app.put("/admin/theater/:id",checkApiKey, async (req, res) => {
 });
 
 // Endpoint to delete a theater
-app.delete("/admin/theater/:id",checkApiKey, async (req, res) => {
+app.delete("/admin/theater/:id", async (req, res) => {
   const { id } = req.params;
 
   try {
