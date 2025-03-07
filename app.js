@@ -85,24 +85,6 @@ app.get('/',(req,res)=>{
   return res.json('Welcome to ShoreTic API')
 })
 
-
-// Add this error handler at the end of your app.js file
-app.use((err, req, res, next) => {
-  console.error(err.stack);
-  res.status(500).json({
-    error: "Internal Server Error",
-    message: err.message
-  });
-});
-
-// Handle 404 errors with JSON
-app.use((req, res) => {
-  res.status(404).json({
-    error: "Not Found",
-    message: "The requested resource was not found"
-  });
-});
-
 //theater by ID
 app.get("/theater/:id", async (req, res) => {
     const { id } = req.params;
