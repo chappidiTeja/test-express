@@ -1,5 +1,9 @@
-# Created by https://www.toptal.com/developers/gitignore/api/node
-# Edit at https://www.toptal.com/developers/gitignore?templates=node
+
+node_modules/
+
+# dotenv environment variables
+.env
+.env.*
 
 ### Node ###
 # Logs

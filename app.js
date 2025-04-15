@@ -15,8 +15,7 @@ const {checkApiKey}=require('./api.js')
 mongoose.connect(process.env.DB_HOST)
   .then(() => console.log('Connected to MongoDB'))
   .catch((err) => console.error('Could not connect to MongoDB', err));
-
-const theaterSchema = new mongoose.Schema({
+  const theaterSchema = new mongoose.Schema({
     id: String,
     name: String,
     location: {
@@ -36,7 +35,8 @@ const theaterSchema = new mongoose.Schema({
         duration: Number,
         showtimes: [
           {
-            date: String, 
+            date: String,
+            day: String, 
             times: [
               {
                 time: String, 
@@ -350,14 +350,18 @@ app.post("/admin/theater/:id/movie", async (req, res) => {
     // Generate showtimes by date
     const generatedShowtimes = allDates.map(date => {
       const formattedDate = formatDate(date);
+      const dayOfWeek = date.toLocaleDateString('en-IN', { weekday: 'long', timeZone: 'Asia/Kolkata' });
+    
       return {
         date: formattedDate,
+        day: dayOfWeek,
         times: showtimes.map(time => ({
           time: time,
           seating_layout: generateSeatingLayoutForShowtime()
         }))
       };
     });
+    
 
     // Create movie object with generated showtimes
     const movieWithSeating = {
